@@ -1,0 +1,1048 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  fcj-book-shop
+
+  Sample SAM Template for fcj-book-shop
+
+# More info about Globals: https://github.com/awslabs/serverless-application-model/blob/master/docs/globals.rst
+Globals:
+  Function:
+    Timeout: 3
+
+    # You can add LoggingConfig parameters such as the Logformat, Log Group, and SystemLogLevel or ApplicationLogLevel. Learn more here https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/sam-resource-function.html#sam-function-loggingconfig.
+    LoggingConfig:
+      LogFormat: JSON
+
+Parameters:
+  fcjBookShopBucketName:
+    Type: String
+    Default: fcj-book-shop-by-myself
+
+  booksTableName:
+    Type: String
+    Default: Books
+
+  bookImageShopBucketName:
+    Type: String
+    Default: book-image-shop-by-myself
+
+  bookImageResizeShopBucketName:
+    Type: String
+    Default: book-image-resize-shop-by-myself
+
+  width:
+    Type: String
+    Default: 200px
+
+  height:
+    Type: String
+    Default: 280px
+
+  apiType:
+    Type: String
+    Default: REGIONAL
+
+  binaryMediaType:
+    Type: String
+    Default: multipart/form-data
+
+  getOrPostPathPart:
+    Type: String
+    Default: books
+
+  deletePathPart:
+    Type: String
+    Default: "{id}"
+
+  stage:
+    Type: String
+    Default: staging
+
+  cognitoClientID:
+    Type: String
+    Default: COGNITO_CLIENT_ID
+
+  cognitoClientSecret:
+    Type: String
+    Default: COGNITO_CLIENT_SECRET
+
+  loginPathPart:
+    Type: String
+    Default: login
+
+  registerPathPart:
+    Type: String
+    Default: register
+
+  confirmPathPart:
+    Type: String
+    Default: confirm
+
+  cachePolicyId:
+    Type: String
+    Default: 658327ea-f89d-4fab-a63d-7e88639e58f6 # AWS managed cache policy
+
+  cloudFrontHostedZoneId:
+    Type: String
+    Default: Z2FDTNDATAQYW2 # CloudFront Hosted Zone ID
+
+  orderTable:
+    Type: String
+    Default: OrdersTable
+
+  checkoutQueueName:
+    Type: String
+    Default: checkout-queue
+
+  checkoutQueueUrl:
+    Type: String
+    Default: https://sqs.us-east-1.amazonaws.com/017820706022/checkout-queue
+
+  orderTopicName:
+    Type: String
+    Default: order-notice
+
+  orderTopicArn:
+    Type: String
+    Default: arn:aws:sns:us-east-1:017820706022:order-notice
+
+  checkoutPathPart:
+    Type: String
+    Default: order
+
+  handleOrderPathPart:
+    Type: String
+    Default: handle
+
+Resources:
+  FcjBookShop:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Ref fcjBookShopBucketName
+      WebsiteConfiguration:
+        IndexDocument: index.html
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: false
+        BlockPublicPolicy: false
+        IgnorePublicAcls: false
+        RestrictPublicBuckets: false
+
+  FcjBookShopPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref FcjBookShop
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Action:
+              - "s3:GetObject"
+            Effect: Allow
+            Principal: "*"
+            Resource: !Join
+              - ""
+              - - "arn:aws:s3:::"
+                - !Ref FcjBookShop
+                - /*
+
+  BooksTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Ref booksTableName
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: id
+          AttributeType: S
+        - AttributeName: rv_id
+          AttributeType: N
+        - AttributeName: name
+          AttributeType: S
+      KeySchema:
+        - AttributeName: id
+          KeyType: HASH
+        - AttributeName: rv_id
+          KeyType: RANGE
+      LocalSecondaryIndexes:
+        - IndexName: name-index
+          KeySchema:
+            - AttributeName: id
+              KeyType: HASH
+            - AttributeName: name
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+
+  BooksList:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: fcj-book-shop/books_list
+      Handler: books_list.lambda_handler
+      Runtime: python3.11
+      FunctionName: books_list
+      Environment:
+        Variables:
+          TABLE_NAME: !Ref BooksTable
+      Architectures:
+        - x86_64
+      Policies:
+        - Statement:
+            - Sid: ReadDynamoDB
+              Effect: Allow
+              Action:
+                - dynamodb:Scan
+                - dynamodb:Query
+              Resource:
+                - !Sub arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${booksTableName}
+
+  BookImageShop:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Ref bookImageShopBucketName
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: false
+        BlockPublicPolicy: false
+        IgnorePublicAcls: false
+        RestrictPublicBuckets: false
+
+  BookImageResizeShop:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Ref bookImageResizeShopBucketName
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: false
+        BlockPublicPolicy: false
+        IgnorePublicAcls: false
+        RestrictPublicBuckets: false
+      CorsConfiguration:
+        CorsRules:
+          - AllowedHeaders:
+              - "*"
+            AllowedMethods:
+              - GET
+              - PUT
+              - POST
+              - DELETE
+            AllowedOrigins:
+              - "*"
+
+  BookImageResizeShopPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref BookImageResizeShop
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Action:
+              - "s3:GetObject"
+            Effect: Allow
+            Principal: "*"
+            Resource: !Join
+              - ""
+              - - "arn:aws:s3:::"
+                - !Ref BookImageResizeShop
+                - /*
+
+  BookCreate:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: fcj-book-shop/book_create
+      Handler: book_create.lambda_handler
+      Runtime: python3.11
+      Environment:
+        Variables:
+          BUCKET_NAME: !Ref BookImageShop
+          BUCKET_RESIZE_NAME: !Ref BookImageResizeShop
+          TABLE_NAME: !Ref BooksTable
+      FunctionName: book_create
+      Architectures:
+        - x86_64
+      Policies:
+        - Statement:
+            - Sid: BookCreateItem
+              Effect: Allow
+              Action:
+                - dynamodb:PutItem
+                - s3:PutObject
+              Resource:
+                - !Sub arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${booksTableName}
+                - !Join
+                  - ""
+                  - - "arn:aws:s3:::"
+                    - !Ref BookImageShop
+                    - /*
+
+  BookDelete:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: fcj-book-shop/book_delete
+      Handler: book_delete.lambda_handler
+      Runtime: python3.11
+      FunctionName: book_delete
+      Environment:
+        Variables:
+          BUCKET_NAME: !Ref BookImageResizeShop
+          TABLE_NAME: !Ref BooksTable
+      Architectures:
+        - x86_64
+      Policies:
+        - Statement:
+            - Sid: VisualEditor0
+              Effect: Allow
+              Action:
+                - dynamodb:DeleteItem
+                - dynamodb:GetItem
+                - dynamodb:Query
+                - s3:DeleteObject
+              Resource:
+                - !Sub arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${booksTableName}
+                - !Join
+                  - ""
+                  - - "arn:aws:s3:::"
+                    - !Ref BookImageResizeShop
+                    - /*
+
+  ImageResize:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: fcj-book-shop/resize_image/function.zip
+      PackageType: Zip
+      Handler: index.handler
+      Runtime: nodejs20.x
+      FunctionName: resize_image
+      Architectures:
+        - x86_64
+      Policies:
+        - Statement:
+            - Sid: ResizeUploadImage
+              Effect: Allow
+              Action:
+                - s3:GetObject
+                - s3:PutObject
+                - s3:DeleteObject
+              Resource:
+                - !Sub "arn:aws:s3:::${bookImageShopBucketName}/*"
+                - !Sub "arn:aws:s3:::${bookImageResizeShopBucketName}/*"
+      Events:
+        ResizeImage:
+          Type: S3
+          Properties:
+            Bucket: !Ref BookImageShop
+            Events: s3:ObjectCreated:*
+      Environment:
+        Variables:
+          WIDTH: !Ref width
+          HEIGHT: !Ref height
+          DES_BUCKET: !Ref BookImageResizeShop
+
+  ImageResizeInvokePermission:
+    Type: "AWS::Lambda::Permission"
+    Properties:
+      FunctionName: !Ref ImageResize
+      Action: "lambda:InvokeFunction"
+      Principal: "s3.amazonaws.com"
+      SourceAccount: !Sub ${AWS::AccountId}
+      SourceArn: !GetAtt BookImageShop.Arn
+
+  BookApi:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name: fcj-serverless-api
+      EndpointConfiguration:
+        Types:
+          - !Ref apiType
+      BinaryMediaTypes:
+        - !Ref binaryMediaType
+
+  BookApiResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref BookApi
+      ParentId: !GetAtt BookApi.RootResourceId
+      PathPart: !Ref getOrPostPathPart
+
+  BookDeleteApiResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref BookApi
+      ParentId: !Ref BookApiResource
+      PathPart: !Ref deletePathPart
+
+  BookApiOptions:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      HttpMethod: OPTIONS
+      RestApiId: !Ref BookApi
+      ResourceId: !Ref BookApiResource
+      AuthorizationType: NONE
+      Integration:
+        Type: MOCK
+        IntegrationResponses:
+          - StatusCode: "200"
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Allow-Methods: "'OPTIONS,POST,GET,DELETE'"
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+      MethodResponses:
+        - StatusCode: "200"
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Allow-Methods: true
+            method.response.header.Access-Control-Allow-Headers: true
+
+  BookApiGet:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      HttpMethod: GET
+      RestApiId: !Ref BookApi
+      ResourceId: !Ref BookApiResource
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST # For Lambda integrations, you must set the integration method to POST
+        Uri: !Sub >-
+          arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${BooksList.Arn}/invocations
+      MethodResponses:
+        - StatusCode: "200"
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Allow-Methods: true
+            method.response.header.Access-Control-Allow-Headers: true
+
+  BookApiDeployment:
+    Type: AWS::ApiGateway::Deployment
+    Properties:
+      RestApiId: !Ref BookApi
+    DependsOn:
+      - BookApiGet
+      - BookApiCreate
+      - BookApiDelete
+      - LoginApi
+      - RegisterApi
+      - ConfirmApi
+      - FcjCheckoutOrderApi
+      - FcjOrderManagementApi
+      - FcjHandleOrderApi
+      - FcjDeleteOrderApi
+
+  BookApiStage:
+    Type: AWS::ApiGateway::Stage
+    Properties:
+      RestApiId: !Ref BookApi
+      StageName: !Ref stage
+      DeploymentId: !Ref BookApiDeployment
+
+  BookApiGetInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref BooksList
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceAccount: !Ref "AWS::AccountId"
+
+  BookApiCreate:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      HttpMethod: POST
+      RestApiId: !Ref BookApi
+      ResourceId: !Ref BookApiResource
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST # For Lambda integrations, you must set the integration method to POST
+        Uri: !Sub >-
+          arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${BookCreate.Arn}/invocations
+      MethodResponses:
+        - StatusCode: "200"
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Allow-Methods: true
+            method.response.header.Access-Control-Allow-Headers: true
+
+  BookApiCreateInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref BookCreate
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceAccount: !Ref "AWS::AccountId"
+
+  BookApiDeleteOptions:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      HttpMethod: OPTIONS
+      RestApiId: !Ref BookApi
+      ResourceId: !Ref BookDeleteApiResource
+      AuthorizationType: NONE
+      Integration:
+        Type: MOCK
+        IntegrationResponses:
+          - StatusCode: "200"
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Allow-Methods: "'OPTIONS,POST,GET,DELETE'"
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+      MethodResponses:
+        - StatusCode: "200"
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Allow-Methods: true
+            method.response.header.Access-Control-Allow-Headers: true
+
+  BookApiDelete:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      HttpMethod: DELETE
+      RestApiId: !Ref BookApi
+      ResourceId: !Ref BookDeleteApiResource
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST # For Lambda integrations, you must set the integration method to POST
+        Uri: !Sub >-
+          arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${BookDelete.Arn}/invocations
+      MethodResponses:
+        - StatusCode: "200"
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Allow-Methods: true
+            method.response.header.Access-Control-Allow-Headers: true
+
+  BookApiDeleteInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref BookDelete
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceAccount: !Ref "AWS::AccountId"
+
+  Login:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: fcj-book-shop/login
+      Handler: login.lambda_handler
+      Runtime: python3.11
+      FunctionName: login
+      Architectures:
+        - x86_64
+      Environment:
+        Variables:
+          CLIENT_ID: !Ref cognitoClientID
+          CLIENT_SECRET: !Ref cognitoClientSecret
+
+  LoginApiResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref BookApi
+      ParentId: !GetAtt BookApi.RootResourceId
+      PathPart: !Ref loginPathPart
+
+  LoginApiOptions:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      HttpMethod: OPTIONS
+      RestApiId: !Ref BookApi
+      ResourceId: !Ref LoginApiResource
+      AuthorizationType: NONE
+      Integration:
+        Type: MOCK
+        IntegrationResponses:
+          - StatusCode: "200"
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Allow-Methods: "'OPTIONS,POST,GET,DELETE'"
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+      MethodResponses:
+        - StatusCode: "200"
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Allow-Methods: true
+            method.response.header.Access-Control-Allow-Headers: true
+
+  LoginApi:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      HttpMethod: POST
+      RestApiId: !Ref BookApi
+      ResourceId: !Ref LoginApiResource
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST # For Lambda integrations, you must set the integration method to POST
+        Uri: !Sub >-
+          arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${Login.Arn}/invocations
+      MethodResponses:
+        - StatusCode: "200"
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Allow-Methods: true
+            method.response.header.Access-Control-Allow-Headers: true
+
+  LoginApiInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref Login
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceAccount: !Ref "AWS::AccountId"
+
+  Register:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: fcj-book-shop/register
+      Handler: register.lambda_handler
+      Runtime: python3.11
+      FunctionName: register
+      Architectures:
+        - x86_64
+      Environment:
+        Variables:
+          CLIENT_ID: !Ref cognitoClientID
+          CLIENT_SECRET: !Ref cognitoClientSecret
+
+  RegisterApiResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref BookApi
+      ParentId: !GetAtt BookApi.RootResourceId
+      PathPart: !Ref registerPathPart
+
+  RegisterApiOptions:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      HttpMethod: OPTIONS
+      RestApiId: !Ref BookApi
+      ResourceId: !Ref RegisterApiResource
+      AuthorizationType: NONE
+      Integration:
+        Type: MOCK
+        IntegrationResponses:
+          - StatusCode: "200"
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Allow-Methods: "'OPTIONS,POST,GET,DELETE'"
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+      MethodResponses:
+        - StatusCode: "200"
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Allow-Methods: true
+            method.response.header.Access-Control-Allow-Headers: true
+
+  RegisterApi:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      HttpMethod: POST
+      RestApiId: !Ref BookApi
+      ResourceId: !Ref RegisterApiResource
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST # For Lambda integrations, you must set the integration method to POST
+        Uri: !Sub >-
+          arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${Register.Arn}/invocations
+      MethodResponses:
+        - StatusCode: "200"
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Allow-Methods: true
+            method.response.header.Access-Control-Allow-Headers: true
+
+  RegisterApiInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref Register
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceAccount: !Ref "AWS::AccountId"
+
+  Confirm:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: fcj-book-shop/confirm_user
+      Handler: confirm_user.lambda_handler
+      Runtime: python3.11
+      FunctionName: confirm
+      Architectures:
+        - x86_64
+      Environment:
+        Variables:
+          CLIENT_ID: !Ref cognitoClientID
+          CLIENT_SECRET: !Ref cognitoClientSecret
+
+  ConfirmApiResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref BookApi
+      ParentId: !GetAtt BookApi.RootResourceId
+      PathPart: !Ref confirmPathPart
+
+  ConfirmApiOptions:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      HttpMethod: OPTIONS
+      RestApiId: !Ref BookApi
+      ResourceId: !Ref ConfirmApiResource
+      AuthorizationType: NONE
+      Integration:
+        Type: MOCK
+        IntegrationResponses:
+          - StatusCode: "200"
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Allow-Methods: "'OPTIONS,POST,GET,DELETE'"
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+      MethodResponses:
+        - StatusCode: "200"
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Allow-Methods: true
+            method.response.header.Access-Control-Allow-Headers: true
+
+  ConfirmApi:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      HttpMethod: POST
+      RestApiId: !Ref BookApi
+      ResourceId: !Ref ConfirmApiResource
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST # For Lambda integrations, you must set the integration method to POST
+        Uri: !Sub >-
+          arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${Confirm.Arn}/invocations
+      MethodResponses:
+        - StatusCode: "200"
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Allow-Methods: true
+            method.response.header.Access-Control-Allow-Headers: true
+
+  ConfirmApiInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref Confirm
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceAccount: !Ref "AWS::AccountId"
+
+  CognitoUserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: fcj-user-pool
+      UsernameAttributes:
+        - email
+      AutoVerifiedAttributes:
+        - email
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 8
+          RequireLowercase: true
+          RequireNumbers: true
+          RequireSymbols: true
+          RequireUppercase: true
+      Schema:
+        - Name: email
+          Required: true
+          Mutable: false
+      MfaConfiguration: "OFF"
+
+  CognitoUserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      ClientName: fcj-user-pool-client
+      UserPoolId: !Ref CognitoUserPool
+      GenerateSecret: true
+      ExplicitAuthFlows:
+        - ALLOW_USER_SRP_AUTH
+        - ALLOW_CUSTOM_AUTH
+        - ALLOW_REFRESH_TOKEN_AUTH
+        - ALLOW_USER_PASSWORD_AUTH
+
+  FcjOrdersTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Ref orderTable
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: id
+          AttributeType: S
+        - AttributeName: book_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: id
+          KeyType: HASH
+        - AttributeName: book_id
+          KeyType: RANGE
+
+  FcjCheckOutOrderFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: fcj-book-shop/checkout_order
+      Handler: checkout_order.lambda_handler
+      Runtime: python3.11
+      FunctionName: checkout_order
+      Environment:
+        Variables:
+          SQS_QUEUE_URL: !Ref checkoutQueueUrl
+          SNS_TOPIC_ARN: !Ref orderTopicArn
+      Architectures:
+        - x86_64
+      Policies:
+        - Statement:
+            - Sid: VisualEditor0
+              Effect: Allow
+              Action:
+                - sqs:*
+              Resource:
+                - !Sub "arn:aws:sqs:${AWS::Region}:${AWS::AccountId}:${checkoutQueueName}"
+            - Sid: VisualEditor1
+              Effect: Allow
+              Action:
+                - sns:Publish
+              Resource:
+                - !Sub "arn:aws:sns:${AWS::Region}:${AWS::AccountId}:${orderTopicName}"
+
+  FcjCheckoutOrderResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref BookApi
+      ParentId: !Ref BookApiResource
+      PathPart: !Ref checkoutPathPart
+
+  FcjCheckoutOrderApiOptions:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      HttpMethod: OPTIONS
+      RestApiId: !Ref BookApi
+      ResourceId: !Ref FcjCheckoutOrderResource
+      AuthorizationType: NONE
+      Integration:
+        Type: MOCK
+        IntegrationResponses:
+          - StatusCode: "200"
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Allow-Methods: "'OPTIONS,POST,GET,DELETE'"
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+      MethodResponses:
+        - StatusCode: "200"
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Allow-Methods: true
+            method.response.header.Access-Control-Allow-Headers: true
+
+  FcjCheckoutOrderApi:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      HttpMethod: POST
+      RestApiId: !Ref BookApi
+      ResourceId: !Ref FcjCheckoutOrderResource
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST # For Lambda integrations, you must set the integration method to POST
+        Uri: !Sub >-
+          arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${FcjCheckOutOrderFunction.Arn}/invocations
+      MethodResponses:
+        - StatusCode: "200"
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Allow-Methods: true
+            method.response.header.Access-Control-Allow-Headers: true
+
+  FcjCheckoutOrderApiInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref FcjCheckOutOrderFunction
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceAccount: !Ref "AWS::AccountId"
+
+  FcjOrderManagementFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: fcj-book-shop/order_management
+      Handler: order_management.lambda_handler
+      Runtime: python3.11
+      FunctionName: order_management
+      Environment:
+        Variables:
+          SQS_QUEUE_URL: !Ref checkoutQueueUrl
+          ORDER_TABLE_NAME: !Ref orderTable
+      Architectures:
+        - x86_64
+      Policies:
+        - Statement:
+            - Sid: VisualEditor0
+              Effect: Allow
+              Action:
+                - dynamodb:Scan
+                - dynamodb:Query
+              Resource:
+                - !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${orderTable}"
+            - Sid: VisualEditor1
+              Effect: Allow
+              Action:
+                - sqs:*
+              Resource:
+                - !Sub "arn:aws:sqs:${AWS::Region}:${AWS::AccountId}:${checkoutQueueName}"
+
+  FcjOrderManagementApi:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      HttpMethod: GET
+      RestApiId: !Ref BookApi
+      ResourceId: !Ref FcjCheckoutOrderResource
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST # For Lambda integrations, you must set the integration method to POST
+        Uri: !Sub >-
+          arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${FcjOrderManagementFunction.Arn}/invocations
+      MethodResponses:
+        - StatusCode: "200"
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Allow-Methods: true
+            method.response.header.Access-Control-Allow-Headers: true
+
+  FcjOrderManagementApiInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref FcjOrderManagementFunction
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceAccount: !Ref "AWS::AccountId"
+
+  FcjHandleOrderResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref BookApi
+      ParentId: !Ref FcjCheckoutOrderResource
+      PathPart: !Ref handleOrderPathPart
+
+  FcjHandleOrderFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: fcj-book-shop/handle_order
+      Handler: handle_order.lambda_handler
+      Runtime: python3.11
+      FunctionName: handle_order
+      Environment:
+        Variables:
+          ORDER_TABLE_NAME: !Ref orderTable
+          SQS_QUEUE_URL: !Ref checkoutQueueUrl
+      Architectures:
+        - x86_64
+      Policies:
+        - Statement:
+            - Sid: VisualEditor0
+              Effect: Allow
+              Action:
+                - dynamodb:PutItem
+                - dynamodb:BatchWriteItem
+              Resource:
+                - !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${orderTable}"
+            - Sid: VisualEditor1
+              Effect: Allow
+              Action:
+                - sqs:*
+              Resource:
+                - !Sub "arn:aws:sqs:${AWS::Region}:${AWS::AccountId}:${checkoutQueueName}"
+
+  FcjHandleOrderApiOptions:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      HttpMethod: OPTIONS
+      RestApiId: !Ref BookApi
+      ResourceId: !Ref FcjHandleOrderResource
+      AuthorizationType: NONE
+      Integration:
+        Type: MOCK
+        IntegrationResponses:
+          - StatusCode: "200"
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Allow-Methods: "'OPTIONS,POST,GET,DELETE'"
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+      MethodResponses:
+        - StatusCode: "200"
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Allow-Methods: true
+            method.response.header.Access-Control-Allow-Headers: true
+
+  FcjHandleOrderApi:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      HttpMethod: POST
+      RestApiId: !Ref BookApi
+      ResourceId: !Ref FcjHandleOrderResource
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST # For Lambda integrations, you must set the integration method to POST
+        Uri: !Sub >-
+          arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${FcjHandleOrderFunction.Arn}/invocations
+      MethodResponses:
+        - StatusCode: "200"
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Allow-Methods: true
+            method.response.header.Access-Control-Allow-Headers: true
+
+  FcjHandleOrderApiInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref FcjHandleOrderFunction
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceAccount: !Ref "AWS::AccountId"
+
+  FcjDeleteOrderFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: fcj-book-shop/delete_order
+      Handler: delete_order.lambda_handler
+      Runtime: python3.11
+      FunctionName: delete_order
+      Environment:
+        Variables:
+          SQS_QUEUE_URL: !Ref checkoutQueueUrl
+      Architectures:
+        - x86_64
+      Policies:
+        - Statement:
+            - Sid: VisualEditor0
+              Effect: Allow
+              Action:
+                - sqs:*
+              Resource:
+                - !Sub "arn:aws:sqs:${AWS::Region}:${AWS::AccountId}:${checkoutQueueName}"
+
+  FcjDeleteOrderApi:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      HttpMethod: DELETE
+      RestApiId: !Ref BookApi
+      ResourceId: !Ref FcjCheckoutOrderResource
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST # For Lambda integrations, you must set the integration method to POST
+        Uri: !Sub >-
+          arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${FcjDeleteOrderFunction.Arn}/invocations
+      MethodResponses:
+        - StatusCode: "200"
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Allow-Methods: true
+            method.response.header.Access-Control-Allow-Headers: true
+
+  FcjDeleteOrderApiInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref FcjDeleteOrderFunction
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceAccount: !Ref "AWS::AccountId"
