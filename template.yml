@@ -17,7 +17,7 @@ Globals:
 Parameters:
   fcjBookShopBucketName:
     Type: String
-    Default: fcj-book-shop-by-myself
+    Default: fcj-book-shop-by-myself-lab84
 
   booksTableName:
     Type: String
@@ -25,11 +25,11 @@ Parameters:
 
   bookImageShopBucketName:
     Type: String
-    Default: book-image-shop-by-myself
+    Default: book-image-shop-by-myself-lab84
 
   bookImageResizeShopBucketName:
     Type: String
-    Default: book-image-resize-shop-by-myself
+    Default: book-image-resize-shop-by-myself-lab84
 
   width:
     Type: String
