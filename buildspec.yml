@@ -18,7 +18,7 @@ phases:
       # Thay thế 'fcj-book-shop-deployment-stack' bằng tên stack mong muốn của bạn.
       # Thay thế 'YOUR_S3_BUCKET_FOR_SAM_DEPLOYMENT' bằng tên S3 bucket duy nhất của bạn
       # (mà bạn phải tự tạo trước đó, chỉ dùng cho việc deploy artifact).
-      - sam deploy --template-file .aws-sam/build/template.yaml --stack-name fcj-book-store --s3-bucket S3_BUCKET_FOR_SAM_DEPLOYMENT --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM --no-confirm-changeset
+      - sam deploy --template-file .aws-sam/build/template.yaml --stack-name fcj-book-store --s3-bucket fcj-book-shop-lab84 --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM --no-confirm-changeset
       - echo "Triển khai hoàn tất!"
 
 artifacts:
