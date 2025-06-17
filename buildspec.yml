@@ -10,7 +10,7 @@ phases:
     commands:
       - echo "Bắt đầu giai đoạn build của SAM..."
       # Lệnh 'sam build' sẽ đóng gói mã nguồn và dependencies của các hàm Lambda
-      - sam build --template template.yml --use-container # Sử dụng template.yml để build
+      - sam build --template template.yml --use-container --debug # Sử dụng template.yml để build
 
   post_build:
     commands:
@@ -18,7 +18,7 @@ phases:
       # Thay thế 'fcj-book-shop-deployment-stack' bằng tên stack mong muốn của bạn.
       # Thay thế 'YOUR_S3_BUCKET_FOR_SAM_DEPLOYMENT' bằng tên S3 bucket duy nhất của bạn
       # (mà bạn phải tự tạo trước đó, chỉ dùng cho việc deploy artifact).
-      - sam deploy --template-file .aws-sam/build/template.yaml --stack-name fcj-book-store --s3-bucket fcj-book-shop-lab84 --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM --no-confirm-changeset
+      - sam deploy --template-file .aws-sam/build/template.yaml --stack-name fcj-book-store --s3-bucket fcj-book-shop-lab84 --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM --no-confirm-changeset --debug 
       - echo "Triển khai hoàn tất!"
 
 artifacts:
